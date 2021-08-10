@@ -261,5 +261,5 @@ namespace app
 		virtual bool  ClientCommand(tcp::IClient* tc, const uint16_t cmd) { return false; }
 	};
 }
-
+//github test
 #endif // __IDATA_H__
