@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="GB2312"?>
+<root>
+  <remote appXorCode="130"
+          appVersion="20210600"
+          recvBytesOne="8"
+          recvBytesMax="256"
+          sendBytesOne="8"
+          sendBytesMax="256"
+          maxHeartTime="10"
+          autoConnectTime="3"
+          SecureCode="sterlingjone"
+          Head="DE"/>
+  <remote_count count="1"/>
+  <remote_1 IP="127.0.0.1" Port="13550" ID="4001" Type="Center"/>
+</root>

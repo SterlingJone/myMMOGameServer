@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="GB2312"?>
+<root>
+    <app    appID="2000"
+            appPort="13550"
+            appMaxPlayer="30"
+            appMaxConnect="11000"
+            appXorCode="130"
+            appVersion="20210600"
+            recvBytesOne="4"
+            recvBytesMax="32"
+            sendBytesOne="4"
+            sendBytesMax="32"
+            maxHeartTime="60"
+            maxPostAccept="100"
+            maxPostRecv="10000"
+            maxPostSend="10000"
+            maxThread="3"
+            SecureCode="sterlingjone"
+            Head="DE"/>
+</root>

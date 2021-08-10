@@ -1,0 +1,457 @@
+#include "LinuxServer.h"
+
+#include <sys/socket.h>
+#include <sys/epoll.h>
+#include <unistd.h>
+#include <fcntl.h>
+#include <arpa/inet.h>
+#include <map>
+#include <cstring>
+
+using namespace tcp;
+using namespace common;
+
+IServer* tcp::NewIServer()
+{
+	return new tcp::LinuxServer();
+}
+
+
+namespace tcp
+{
+
+	LinuxServer::LinuxServer()
+	{
+		m_IsRunning = false;
+		m_ConnectCount = 0;
+		m_SecurityCount = 0;
+
+		listenfd = -1;
+		epollfd = -1;
+
+		m_Notify_Secure = nullptr;
+		m_Notify_Disconnect = nullptr;
+		m_Notify_Accept = nullptr;
+		m_Notify_Command = nullptr;
+	}
+
+	LinuxServer::~LinuxServer()
+	{
+	}
+
+	//启动服务器
+	void LinuxServer::StartServer()
+	{
+		temp_Buf = new char[common::ServerXML->recvBytesOne];
+		//1、创建连接用户
+		m_Onlines = new HashContainer<S_CONNECT_BASE>(ServerXML->appMaxConnect);
+		for (int i = 0; i < m_Onlines->Count(); i++)
+		{
+			S_CONNECT_BASE* client = m_Onlines->Value(i);
+			client->Init();
+		}
+		//2、连接用户索引
+		m_OnlinesIndexs = new common::HashContainer<S_CONNECT_INDEX>(MAX_SOCKETFD_LEN);
+		for (int i = 0; i < MAX_SOCKETFD_LEN; i++)
+		{
+			S_CONNECT_INDEX* client = m_OnlinesIndexs->Value(i);
+			client->Reset();
+		}
+		//3、初始化socket
+		InitSocket();
+		//4、运行线程
+		InitThread();
+	}
+
+	void LinuxServer::StopServer()
+	{
+	}
+
+	//设置非阻塞
+	bool LinuxServer::SetNonblock(int fd)
+	{
+		int flags = fcntl(fd, F_GETFL);
+		if (flags < 0)
+		{
+			return false;
+		}
+
+		flags |= O_NONBLOCK;
+		if (fcntl(fd, F_SETFL, flags) < 0)
+		{
+			return false;
+		}
+		return true;
+	}
+
+	void LinuxServer::Event_Delete(int epollfd, int sockfd, int state)
+	{
+		struct epoll_event ev;
+		ev.events = state;   // epoll事件
+		ev.data.fd = sockfd; // 用户数据
+		epoll_ctl(epollfd, EPOLL_CTL_DEL, sockfd, &ev);
+	}
+
+	int LinuxServer::Event_Add(int epollfd, int sockfd, int state)
+	{
+		struct  epoll_event ev;
+		ev.events = state;
+		ev.data.fd = sockfd;
+		int value = epoll_ctl(epollfd, EPOLL_CTL_ADD, sockfd, &ev);
+		return value;
+	}
+
+	int LinuxServer::InitSocket()
+	{
+		m_IsRunning = false;
+		//1、创建socket
+		listenfd = socket(AF_INET, SOCK_STREAM, 0);
+		if (listenfd == -1)
+		{
+			perror("socket error...");
+			exit(1);
+		}
+		SetNonblock(listenfd);
+		//2、设置buff 缓冲大小
+		int rece = 0;
+		int send = 0;
+		setsockopt(listenfd, SOL_SOCKET, SO_RCVBUF, (const int*)& rece, sizeof(int));
+		setsockopt(listenfd, SOL_SOCKET, SO_SNDBUF, (const int*)& send, sizeof(int));
+		//3、启动端口号重复绑定
+		int flag = 1;
+		int ret = setsockopt(listenfd, SOL_SOCKET, SO_REUSEADDR, &flag, sizeof(int));
+		if (ret < 0)
+		{
+			perror("setsockopt error...");
+			exit(1);
+		}
+		//4、设置bind
+		struct sockaddr_in addr;
+		addr.sin_family = AF_INET;
+		addr.sin_port   = htons(ServerXML->appPort);
+		addr.sin_addr.s_addr = INADDR_ANY;
+		ret = bind(listenfd, (struct sockaddr*) & addr, sizeof(addr));
+		if(ret == -1)
+		{
+			perror("bind error...");
+			exit(1);
+		}
+		//5、监听
+		listen(listenfd, SOMAXCONN);
+
+		//6、创建epoll
+		epollfd = epoll_create(FDSIZE);
+		Event_Add(epollfd, listenfd, EPOLLIN);
+
+
+		return 0;
+	}
+
+	int32_t LinuxServer::ReleaseSocket(int socketfd, S_CONNECT_BASE* c, int kind)
+	{
+		if (socketfd == -1)
+		{
+			return -1;
+		}
+		if (c != nullptr)
+		{
+			if (c->state == common::E_SSS_Free)
+			{
+				return 0;
+			}
+			if (c->state >= common::E_SSS_Secure)
+			{
+				this->ComputeSecureNum(false);
+			}
+		}
+		switch (kind)
+		{
+		case 101:
+			close(socketfd);
+			break;
+		default:
+			this->ComputeConnectNum(false);
+			Event_Delete(epollfd, socketfd, EPOLLIN | EPOLLET);
+			shutdown(socketfd, SHUT_RDWR);
+			close(socketfd);
+			break;
+		}
+
+		if (m_Notify_Disconnect != nullptr) this->m_Notify_Disconnect(this, c, kind);
+
+		return 0;
+	}
+	void LinuxServer::ShutDownSocket(int s, const int32_t mode, S_CONNECT_BASE* c, int kind)
+	{
+		if (c != nullptr)
+		{
+			if (c->state == common::E_SSS_Free)
+			{
+				return;
+			}
+			if (c->closeState == common::E_SSC_ShutDown)
+			{
+				return;
+			}
+
+			c->recvs.isCompleted = true;
+			c->sends.isCompleted = true;
+			c->temp_ShutDown = kind;
+			c->temp_CloseTime = (int)time(NULL);
+			c->closeState = common::E_SSC_ShutDown;
+
+			shutdown(s, SHUT_RDWR);
+			return;
+		}
+
+		auto c2 = FindClient(s, true);
+		if (c2 == nullptr)
+		{
+			return;
+		}
+		if (c2->state == common::E_SSS_Free)
+		{
+			return;
+		}
+		if (c2->closeState == common::E_SSC_ShutDown)
+		{
+			return;
+		}
+
+		
+		c2->recvs.isCompleted = true;
+		c2->sends.isCompleted = true;
+		c2->temp_ShutDown = kind;
+		c2->temp_CloseTime = (int)time(NULL);
+		c2->closeState = common::E_SSC_ShutDown;
+		shutdown(s, SHUT_RDWR);
+	}
+
+	//接收新的连接
+	void LinuxServer::Event_Accept()
+	{
+		struct sockaddr_in addr;
+		socklen_t  len = sizeof(addr);
+		int socketfd = accept(listenfd, (struct sockaddr*) & addr, &len);
+		if (socketfd == -1)
+		{
+			perror("accept error..");
+			return;
+		}
+
+		auto c = FindNoStateData();
+		auto cindex = FindOnlinesIndex(socketfd);
+		if (c == nullptr || cindex == nullptr)
+		{
+			LOGINFO("accept err...%d \n", socketfd);
+			ReleaseSocket(socketfd, NULL, 101);
+			return;
+		}
+
+		cindex->index = c->index;
+		c->socketfd = socketfd;
+
+		//设置非阻塞
+		SetNonblock(c->socketfd);
+		//添加可读 边界模式
+		Event_Add(this->epollfd, c->socketfd, EPOLLIN | EPOLLET);
+
+		memcpy(c->ip, inet_ntoa(addr.sin_addr), MAX_IP_LEN);
+		c->port = ntohs(addr.sin_port);
+		c->temp_ConnectTime = (int)time(NULL);
+		c->temp_HeartTime = (int)time(NULL);
+		c->state = E_SSS_Connect;
+
+		//更新连接数量
+		this->ComputeConnectNum(true);
+		//生成随机种子 发送一个安全码给客户端
+		srand(time(NULL));
+		uint8_t value = rand() % 125 + 1;
+		S_CMD_XOR code;
+		code.xorCode = value ^ c->xorCode;
+		CreatePackage(c->index, CMD_XOR, &code, sizeof(S_CMD_XOR));
+		c->xorCode = value;
+
+		if (m_Notify_Accept != nullptr) this->m_Notify_Accept(this, c, 0);
+	}
+	//新的数据 保存到缓冲区
+	void LinuxServer::Event_Recv(int socketfd)
+	{
+		auto c = FindClient(socketfd, true);
+		if (c == nullptr)
+		{
+			return;
+		}
+
+		memset(temp_Buf, 0, ServerXML->recvBytesOne);
+		//ET 一直读 读到错误为止
+		while (true)
+		{
+			int recvBytes = recv(socketfd, temp_Buf, ServerXML->recvBytesOne, 0);
+			if (recvBytes < 0)
+			{
+				if (errno == EINTR) continue;
+				else if (errno == EAGAIN) break;
+				else
+				{
+					c->recvs.isCompleted = true;
+					ShutDownSocket(socketfd, 0, c, 2001);
+					return;
+				}
+			}
+			else if (recvBytes == 0)
+			{
+				ShutDownSocket(socketfd, 0, c, 2002);
+				return;
+			}
+			//读取数据
+			if (c->recvs.head == c->recvs.tail)
+			{
+				c->recvs.tail = 0;
+				c->recvs.head = 0;
+			}
+			if (c->recvs.tail + recvBytes > ServerXML->recvBytesMax)
+			{
+				ShutDownSocket(socketfd, 0, c, 2003);
+				return;
+			}
+			memcpy(&c->recvs.buf[c->recvs.tail], temp_Buf, recvBytes);
+
+			c->recvs.tail += recvBytes;
+			if (recvBytes < ServerXML->recvBytesOne) break;
+		}
+
+		c->recvs.isCompleted = true;
+	}
+
+	int LinuxServer::Event_Send(S_CONNECT_BASE* c)
+	{
+		if (c->index < 0 ||
+			c->state == E_SSS_Free ||
+			c->closeState == E_SSC_ShutDown ||
+			c->socketfd == -1) return -1;
+
+		if (c->sends.tail <= c->sends.head) return 0;
+		int curBytes = c->sends.tail - c->sends.head;
+		int sendBytes = send(c->socketfd, &c->sends.buf[c->sends.head], curBytes, 0);
+		if (sendBytes > 0)
+		{
+			c->sends.head += sendBytes;
+			c->sends.isCompleted = true;
+			return 0;
+		}
+		if (sendBytes < 0)
+		{
+			if (errno == EINTR)
+			{
+				return 0;
+			}
+			else if (errno == EAGAIN)
+			{
+				return 0;
+			}
+			else
+			{
+				ShutDownSocket(c->socketfd, 0, c, 3001);
+				return -1;
+			}
+		}
+		else if (sendBytes == 0)
+		{
+			ShutDownSocket(c->socketfd, 0, c, 3002);
+			return -1;
+		}
+
+		return 0;
+	}
+
+	//*******************************************************************
+	//*******************************************************************
+	//*******************************************************************
+	//*******************************************************************
+	//线程模块
+	void LinuxServer::InitThread()
+	{
+		m_Thread_Manager.reset(new std::thread(LinuxServer::Thread_Manager, this));
+		m_Thread_Accept.reset(new std::thread(LinuxServer::Thread_Accept,this));
+		m_Thread_Recv.reset(new std::thread(LinuxServer::Thread_Recv, this));
+
+		m_Thread_Manager->detach();
+		m_Thread_Accept->detach();
+		m_Thread_Recv->detach();
+	}
+	//管理线程
+	void LinuxServer::Thread_Manager(LinuxServer* epoll)
+	{
+		LOGINFO("run Thread_Manager...\n");
+
+		struct epoll_event  events[EPOLLEVENTS];
+		
+		for (; ; )
+		{
+			int num = epoll_wait(epoll->epollfd, events, EPOLLEVENTS, -1);
+			for (int i = 0; i < num; i++)
+			{
+				int fd = events[i].data.fd;
+				if (fd == epoll->listenfd) //有新的连接
+				{
+					epoll->m_Condition_Accept.notify_one();
+				}
+				else if(events[i].events & EPOLLIN) //有可读事件
+				{
+					{
+						std::unique_lock<std::mutex> guard(epoll->m_Mutex_Recv);
+						epoll->m_SocketfdArr.push_back(fd);
+					}
+
+					epoll->m_Condition_Recv.notify_one();
+				}
+
+			}
+		}
+		LOGINFO("exit Thread_Manager...\n");
+	}
+	void LinuxServer::Thread_Accept(LinuxServer* epoll)
+	{
+		LOGINFO("run Thread_Accept...\n");
+
+		while (true)
+		{
+			{
+				std::unique_lock<std::mutex>   guard(epoll->m_Mutex_Accept);
+				epoll->m_Condition_Accept.wait(guard);
+			}
+
+			//接收新的连接
+			epoll->Event_Accept();
+		}
+
+		LOGINFO("exit Thread_Accept...\n");
+	}
+	void LinuxServer::Thread_Recv(LinuxServer* epoll)
+	{
+		LOGINFO("run Thread_Recv...\n");
+		int socketfd = -1;
+
+		while (true)
+		{
+			{
+				std::unique_lock<std::mutex>   guard(epoll->m_Mutex_Recv);
+				while (epoll->m_SocketfdArr.empty())
+				{
+					epoll->m_Condition_Recv.wait(guard);
+				}
+
+				socketfd = epoll->m_SocketfdArr.front();
+				epoll->m_SocketfdArr.pop_front();
+			}
+		
+			//接收新的数据
+			epoll->Event_Recv(socketfd);
+
+		}
+
+		LOGINFO("exit Thread_Recv...\n");
+	}
+}
+
