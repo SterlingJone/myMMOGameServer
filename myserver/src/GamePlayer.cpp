@@ -89,23 +89,22 @@ namespace app
 
 		switch (cmd)
 		{
-		case CMD_LOGIN:
-		{
-			onLogin(ts, c);
-			break;
-		}
-		case CMD_MOVE:
-		{
-			onMove(ts, c);
-			break;
-		}
-		case CMD_PLAYERDATA:
-		{
-			onGetPlayerData(ts, c);
-			break;
-		}
-
-		return false;
+			case CMD_LOGIN:
+			{
+				onLogin(ts, c);
+				break;
+			}
+			case CMD_MOVE:
+			{
+				onMove(ts, c);
+				break;
+			}
+			case CMD_PLAYERDATA:
+			{
+				onGetPlayerData(ts, c);
+				break;
+			}
+			return false;
 		}
 	}
 

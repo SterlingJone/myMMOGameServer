@@ -42,7 +42,6 @@ namespace app
 
 		LOGINFO("disconnect...%d [%s:%d][connect:%d-%d]  %d-%d\n", (int)c->socketfd, c->ip, c->port, aa, bb,c->temp_ShutDown,code);
 
-
 		if (c->state == common::E_SSS_Connect || c->state == common::E_SSS_Secure)
 		{
 			c->Reset();

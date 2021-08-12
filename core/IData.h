@@ -108,7 +108,6 @@ namespace common
 		}
 		HashContainer(int counter)
 		{
-			m_Count = 0;
 			if (counter < 1) return;
 			m_Count = counter;
 			m_Pointer = malloc(m_Count * sizeof(T));
@@ -261,6 +260,4 @@ namespace app
 		virtual bool  ClientCommand(tcp::IClient* tc, const uint16_t cmd) { return false; }
 	};
 }
-//github test
-//github test
 #endif // __IDATA_H__

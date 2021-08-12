@@ -31,7 +31,10 @@ namespace tcp
 				continue;
 			}
 
-			UpdateDisconnect(c);
+			UpdateDisconnect(c);//将以下情况的链接关闭：
+								//1、释放关闭1S以上的链接。
+								//2、10S以上未变成安全链接的连接中的链接。 
+								//3、超过最大心跳时间的连接。
 			if (c->closeState == common::E_SSC_ShutDown)
 			{
 				continue;
@@ -339,7 +342,6 @@ namespace tcp
 				c->state = common::E_SSS_Connect;
 				return c;
 			}
-
 		}
 		return nullptr;
 	}

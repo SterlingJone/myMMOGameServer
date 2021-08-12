@@ -55,12 +55,6 @@ namespace common
 	}
 	void SetConsoleColor(uint16_t index)
 	{
-#ifdef ____Win32
-		//0 = 黑色   1 = 蓝色   2 = 绿色  3 = 浅绿色 4 = 红色 5 = 紫色 6 = 黄色
-		//7 = 白色   8 = 灰色   9 = 淡蓝色 A = 淡绿色 B = 淡浅绿色  C = 淡红色
-		//D = 淡紫色 E = 淡黄色 F = 亮白色
-		SetConsoleTextAttribute(GetStdHandle(STD_OUTPUT_HANDLE), index);
-#endif
 	}
 }
 

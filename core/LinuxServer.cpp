@@ -253,7 +253,7 @@ namespace tcp
 
 		//设置非阻塞
 		SetNonblock(c->socketfd);
-		//添加可读 边界模式
+		//添加可读 边缘触发模式
 		Event_Add(this->epollfd, c->socketfd, EPOLLIN | EPOLLET);
 
 		memcpy(c->ip, inet_ntoa(addr.sin_addr), MAX_IP_LEN);
@@ -403,14 +403,13 @@ namespace tcp
 						std::unique_lock<std::mutex> guard(epoll->m_Mutex_Recv);
 						epoll->m_SocketfdArr.push_back(fd);
 					}
-
 					epoll->m_Condition_Recv.notify_one();
 				}
-
 			}
 		}
 		LOGINFO("exit Thread_Manager...\n");
 	}
+	//接收新链接的线程
 	void LinuxServer::Thread_Accept(LinuxServer* epoll)
 	{
 		LOGINFO("run Thread_Accept...\n");
@@ -428,6 +427,7 @@ namespace tcp
 
 		LOGINFO("exit Thread_Accept...\n");
 	}
+	//接收新消息的线程
 	void LinuxServer::Thread_Recv(LinuxServer* epoll)
 	{
 		LOGINFO("run Thread_Recv...\n");

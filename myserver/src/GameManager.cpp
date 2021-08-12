@@ -46,7 +46,7 @@ namespace app
 		while (true)
 		{
 			Update();
-			sleep(2);
+			//sleep(2);
 		}
 
 		return 0;
