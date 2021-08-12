@@ -84,7 +84,7 @@
     <RemoteOutRelDir>myserver/exe</RemoteOutRelDir>
   </PropertyGroup>
   <ItemGroup>
-    <ClCompile Include="..\..\core\IDate.cpp" />
+    <ClCompile Include="..\..\core\IData.cpp" />
     <ClCompile Include="..\..\core\LinuxServer.cpp" />
     <ClCompile Include="..\..\core\LinuxServer_API.cpp" />
     <ClCompile Include="..\..\core\MyClient.cpp" />
