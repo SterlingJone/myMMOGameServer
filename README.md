@@ -30,9 +30,9 @@
 
 5. 实现玩家同步机制，将玩家的变更信息随时同步到其他玩家，离开的玩家数据机构进入对象回收池，减少对象的构造和析构带来的开销。
 
-   **思维导图**：
+**思维导图**：
 
-![img](C:\Users\sterl.000\AppData\Local\YNote\data\sterling.jone@qq.com\3ae2600a6ce04132b1f66f0ea7e8ef46\mmo服务器.png)
+![img](https://github.com/SterlingJone/myMMOGameServer/blob/master/xmind.png)
 
 **目录：**
 
