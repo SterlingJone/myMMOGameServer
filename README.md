@@ -38,7 +38,7 @@
 
 myserver:存放业务层代码
 
-code:存放框架代码
+core:存放框架代码
 
 public:存放读取配置文件的入口
 
